@@ -1,0 +1,28 @@
+[
+  {
+    "id": "home_ir",
+    "name": "HomeMate IR Blaster",
+    "model": "HomeMate Smart IR Blaster",
+    "type": "infrared_blaster",
+    "online": null,
+    "aliases": ["home ir", "ir blaster", "homemate"],
+    "appliances": ["ac_1", "ac_2"],
+    "capabilities": ["send_ir", "learn_ir"],
+    "remotes": [
+      {
+        "id": "ac_1",
+        "name": "AC 1 Remote",
+        "aliases": ["ac 1", "first ac", "first air conditioner"],
+        "status": "learning_pending",
+        "learned_commands": []
+      },
+      {
+        "id": "ac_2",
+        "name": "AC 2 Remote",
+        "aliases": ["ac 2", "second ac", "second air conditioner"],
+        "status": "learning_pending",
+        "learned_commands": []
+      }
+    ]
+  }
+]

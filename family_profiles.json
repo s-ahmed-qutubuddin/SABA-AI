@@ -1,0 +1,115 @@
+{
+  "owner_user_id": 1,
+  "profiles": [
+    {
+      "label": "Ahmed Qutubuddin",
+      "preferred_name": "Boss",
+      "relationship_to_owner": "self",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Creator / Originator",
+      "occupation": "AI Engineer",
+      "interests": "AI engineering, software development, building Saba",
+      "notes": "Primary creator/originator of JAMAL-FAMILY-ASSISTANT."
+    },
+    {
+      "label": "Khaja Moinuddin",
+      "preferred_name": "His Highness / Royal",
+      "relationship_to_owner": "father",
+      "languages": "Urdu, Hindi, English",
+      "role_title": "Father",
+      "occupation": "",
+      "interests": "Ghazals, sher, shayri, music",
+      "notes": "Usually speaks Urdu and Hindi; enjoys ghazals, sher, shayri and music."
+    },
+    {
+      "label": "Ms Sayeeda Nasreen Sultana",
+      "preferred_name": "Her Highness",
+      "relationship_to_owner": "mother",
+      "languages": "Urdu, Hindi, English",
+      "role_title": "Mother",
+      "occupation": "",
+      "interests": "Homeopathy and general health concerns",
+      "notes": "Usually speaks Urdu and Hindi; keep health responses general and non-diagnostic."
+    },
+    {
+      "label": "Sheema Baqtiyar",
+      "preferred_name": "Didi",
+      "relationship_to_owner": "eldest sister",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Doctor",
+      "occupation": "Medicine Doctor",
+      "interests": "Family, medicine",
+      "notes": "Married to Kamal Hasan; may move to Saudi Arabia."
+    },
+    {
+      "label": "Kamal Hasan",
+      "preferred_name": "Kamal Hasan",
+      "relationship_to_owner": "brother-in-law",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Doctor",
+      "occupation": "Eye Doctor",
+      "interests": "Medicine, ophthalmology",
+      "notes": "Married to Sheema Baqtiyar."
+    },
+    {
+      "label": "Ayesha",
+      "preferred_name": "Khatta",
+      "relationship_to_owner": "niece",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Child",
+      "occupation": "Student",
+      "interests": "Family, school",
+      "notes": "10-year-old girl; keep interactions age-appropriate."
+    },
+    {
+      "label": "Taha",
+      "preferred_name": "Taha",
+      "relationship_to_owner": "second eldest sister",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Data Science Engineer",
+      "occupation": "Data Science Engineer",
+      "interests": "Data science, engineering",
+      "notes": "Expected to work in Saudi Arabia soon."
+    },
+    {
+      "label": "Quashiya Mudassir",
+      "preferred_name": "Shahshiya",
+      "relationship_to_owner": "third eldest sister",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Business Professional",
+      "occupation": "Business crew / professional",
+      "interests": "Travel, international work",
+      "notes": "Lives in Qatar and travels internationally."
+    },
+    {
+      "label": "Saniya Noorain",
+      "preferred_name": "Moti",
+      "relationship_to_owner": "fourth eldest sister",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Data Science Engineer",
+      "occupation": "Data Science Engineer",
+      "interests": "Data science, family, jokes",
+      "notes": "Works in Saudi Arabia and likes the creator's jokes."
+    },
+    {
+      "label": "Ahmed Hussamuddin",
+      "preferred_name": "Bro",
+      "relationship_to_owner": "eldest brother",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Cloud Security Engineer",
+      "occupation": "Cloud Security Engineer",
+      "interests": "Cloud security, leadership",
+      "notes": "Strong mindset and leadership qualities."
+    },
+    {
+      "label": "Ahmed Fareeduddin",
+      "preferred_name": "Zaid Bhaiya",
+      "relationship_to_owner": "second eldest brother",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "DevOps Engineer",
+      "occupation": "DevOps Engineer",
+      "interests": "DevOps, engineering",
+      "notes": "Family nickname is Zaid Bhaiya."
+    }
+  ]
+}

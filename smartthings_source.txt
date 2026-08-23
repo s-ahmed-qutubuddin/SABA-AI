@@ -1,0 +1,1475 @@
+==================== router.py ====================
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+import sys
+from dateparser.search import search_dates
+
+from config import SABA_USER_ID
+from family_profiles import list_profiles, relevant_context
+from identity import identify_family_member
+from memory import memories, notes, tasks, preferences, search_memories, get_preferences
+from tools.system import (
+    open_app, open_url, set_volume, get_volume, media_control,
+    battery_status, system_info, clipboard_read, clipboard_write, open_project_folder, list_project_files,
+)
+from tools.weather import get_weather
+from home_tools import home_list_devices, home_get_status, home_get_capabilities, home_control, home_find, home_get_energy, home_get_energy_usage, home_estimate_cost
+from tools.news import get_news
+from tools.web import search_web
+from tools.calculator import calculate
+from tools.music import open_music
+
+
+def parse_task(text):
+    clean = text.strip()
+    found = search_dates(clean, settings={"PREFER_DATES_FROM": "future"})
+    if not found:
+        return clean, None
+    phrase, dt = found[-1]
+    due_date = dt.strftime("%Y-%m-%d %H:%M:%S")
+    title = clean.replace(phrase, "").strip(" ,.-")
+    return title or clean, due_date
+
+
+def route_command(text, emit=None, user_id=SABA_USER_ID):
+    emit = emit or (lambda *_: None)
+    original = text.strip()
+    low = original.lower()
+
+    if low.startswith("remember"):
+        memory = original[len("remember"):].strip()
+        if not memory:
+            return {"handled": True, "speak": "What would you like me to remember?"}
+        memories(user_id, memory, "general")
+        emit("memory_saved", {"text": memory})
+        return {"handled": True, "speak": "I'll remember that."}
+
+    if low.startswith(("what do you remember", "recall", "remembered")):
+        query = original.replace("what do you remember", "").replace("recall", "").strip() or "general"
+        rows = search_memories(user_id, query, 6)
+        if not rows:
+            return {"handled": True, "speak": "I don't have a matching stored memory yet."}
+        answer = "; ".join(row["memory"] for row in rows[:4])
+        emit("memory_retrieved", {"results": rows})
+        return {"handled": True, "speak": answer}
+
+    identify = re.fullmatch(r"(?:i am|i'm|this is|switch to|talk as)\s+(.+)", original, flags=re.IGNORECASE)
+    if identify:
+        try:
+            identity = identify_family_member(identify.group(1), user_id)
+            emit("identity_switched", {"user_id": identity.user_id, "label": identity.profile_label})
+            return {"handled": True, "speak": f"Understood. I’ll use the {identity.profile_label} profile from now on."}
+        except Exception:
+            pass
+
+    if low.startswith("note"):
+        content = original[len("note"):].strip()
+        if not content:
+            return {"handled": True, "speak": "What should I put in the note?"}
+        notes(user_id, "Note", content)
+        emit("note_saved", {"text": content})
+        return {"handled": True, "speak": "Note saved."}
+
+    if low.startswith("task"):
+        payload = original[len("task"):].strip()
+        if not payload:
+            return {"handled": True, "speak": "What task should I create?"}
+        title, due = parse_task(payload)
+        tasks(user_id, title, payload, due)
+        emit("task_saved", {"text": title, "due_date": due})
+        return {"handled": True, "speak": "Task saved."}
+
+    if low.startswith("preference"):
+        payload = original[len("preference"):].strip()
+        if ":" not in payload:
+            return {"handled": True, "speak": "Give me a preference like theme: dark."}
+        key, value = payload.split(":", 1)
+        key, value = key.strip(), value.strip()
+        if not key or not value:
+            return {"handled": True, "speak": "I need both a preference key and a value."}
+        preferences(user_id, key, value)
+        emit("preference_saved", {"key": key, "value": value})
+        return {"handled": True, "speak": "Preference updated."}
+
+    app_match = re.fullmatch(r"open (safari|chrome|google chrome|vs code|visual studio code|terminal|finder|music|notes|spotify)", low)
+    if app_match:
+        raw = app_match.group(1)
+        app = {"safari":"Safari","chrome":"Google Chrome","google chrome":"Google Chrome","vs code":"Visual Studio Code","visual studio code":"Visual Studio Code","terminal":"Terminal","finder":"Finder","music":"Music","notes":"Notes","spotify":"Spotify"}[raw]
+        result = open_app(app); emit("system_action", result)
+        return {"handled": True, "speak": f"Opening {app}."}
+
+    volume_match = re.fullmatch(r"(?:set )?volume(?: to)?\s+(\d{1,3})%?", low)
+    if volume_match:
+        result = set_volume(int(volume_match.group(1))); emit("system_action", result)
+        return {"handled": True, "speak": f"Volume set to {result['volume']} percent."}
+
+    if low in {"what is my volume", "current volume", "volume"}:
+        result = get_volume(); emit("system_action", result)
+        return {"handled": True, "speak": f"The output volume is {result['volume']} percent."}
+
+    if low in {"yt", "youtube", "open youtube", "go to youtube", "open yt"}:
+        result = open_url("https://www.youtube.com"); emit("system_action", result)
+        return {"handled": True, "speak": "Opening YouTube."}
+
+    if low in {"google", "open google", "go to google"}:
+        result = open_url("https://www.google.com"); emit("system_action", result)
+        return {"handled": True, "speak": "Opening Google."}
+
+    if low in {"play music", "open music"}:
+        result = open_music(); emit("system_action", result)
+        return {"handled": True, "speak": "Opening Music."}
+
+    url_match = re.fullmatch(r"(?:open|go to)\s+(https?://\S+)", original, flags=re.IGNORECASE)
+    if url_match:
+        result = open_url(url_match.group(1)); emit("system_action", result)
+        return {"handled": True, "speak": "Opening website."}
+
+    if low in {"battery", "battery status", "how much battery"}:
+        result = battery_status(); emit("system_action", result)
+        return {"handled": True, "speak": result.get("summary", "Battery status retrieved.")}
+
+    if low in {"system info", "computer info", "mac info"}:
+        result = system_info(); emit("system_action", result)
+        return {"handled": True, "speak": result.get("summary", "System information retrieved.")}
+
+    calc_match = re.fullmatch(r"(?:calculate|what is)\s+(.+)", original, flags=re.IGNORECASE)
+    if calc_match:
+        try:
+            value = calculate(calc_match.group(1))
+            return {"handled": True, "speak": str(value)}
+        except Exception:
+            pass
+
+    weather_match = re.fullmatch(r"weather(?: in)?\s+(.+)", original, flags=re.IGNORECASE)
+    if weather_match:
+        data = get_weather(weather_match.group(1)); emit("weather_result", data)
+        return {"handled": True, "speak": f"In {data['city']}, it's {data['temperature_c']} degrees Celsius, with wind at {data['wind_kmh']} kilometers per hour."}
+
+    search_match = re.fullmatch(r"(?:search|look up)\s+(.+)", original, flags=re.IGNORECASE)
+    if search_match:
+        results = search_web(search_match.group(1)); emit("web_result", {"results": results})
+        return {"handled": True, "speak": results[0]["title"] if results else "I found no results."}
+
+    news_match = re.fullmatch(r"news(?: about)?\s+(.+)", original, flags=re.IGNORECASE)
+    if news_match:
+        results = get_news(news_match.group(1)); emit("news_result", {"results": results})
+        return {"handled": True, "speak": results[0]["title"] if results else "I found no news results."}
+
+    return {"handled": False}
+
+
+def _dev_tool_allowed(role: str) -> bool:
+    return role == "creator"
+
+
+
+
+def activate_developer_mode(role: str):
+    """Creator-only developer-mode activation. Opens the primary dev tools on macOS."""
+    if not _dev_tool_allowed(role):
+        return {"ok": False, "error": "Creator-only developer mode."}
+    opened = []
+    errors = []
+    for app in ("Visual Studio Code", "Terminal", "Notes"):
+        try:
+            result = open_app(app)
+            opened.append(app)
+        except Exception as exc:
+            errors.append(f"{app}: {exc}")
+    try:
+        project = open_project_folder()
+        opened.append("Jamal Family Assistant project")
+    except Exception as exc:
+        errors.append(f"Project: {exc}")
+    return {
+        "ok": not errors,
+        "label": "Developer mode active",
+        "message": "Systems are online, Boss. Ready to build.",
+        "opened": opened,
+        "errors": errors,
+        "developer_mode": True,
+    }
+
+def developer_diagnostics(role: str):
+    if not _dev_tool_allowed(role):
+        return {"ok": False, "error": "Creator-only developer tool."}
+    return {
+        "ok": True,
+        "app": os.getenv("APP_NAME", "JAMAL-FAMILY-ASSISTANT"),
+        "python": subprocess.check_output([sys.executable, "--version"], text=True).strip(),
+        "cwd": os.getcwd(),
+        "pid": os.getpid(),
+    }
+
+
+def open_project(role: str):
+    if not _dev_tool_allowed(role):
+        return {"ok": False, "error": "Creator-only developer tool."}
+    return open_project_folder()
+
+
+def list_project(role: str):
+    if not _dev_tool_allowed(role):
+        return {"ok": False, "error": "Creator-only developer tool."}
+    return list_project_files()
+
+
+def git_status(role: str):
+    if not _dev_tool_allowed(role):
+        return {"ok": False, "error": "Creator-only developer tool."}
+    try:
+        result = subprocess.run(["git", "status", "--short", "--branch"], text=True, capture_output=True, timeout=5, check=False)
+        return {"ok": result.returncode == 0, "output": result.stdout[:12000], "error": result.stderr[:2000]}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def execute_named_tool(name, args, user_id=SABA_USER_ID, role="primary_user"):
+    if name == "activate_developer_mode":
+        return activate_developer_mode(role)
+    if name == "remember":
+        memory_id = memories(user_id, args["memory"], args.get("category", "general"))
+        return {"ok": True, "memory_id": memory_id, "stored": args["memory"]}
+    if name == "recall_memory":
+        rows = search_memories(user_id, args.get("query", ""), args.get("limit", 8))
+        return {"ok": True, "memories": [{"memory_id": r.get("memory_id"), "memory": r.get("memory"), "category": r.get("category"), "importance": r.get("importance")} for r in rows]}
+    if name == "family_context":
+        q = args.get("query", "")
+        return {"ok": True, "context": relevant_context(q, args.get("limit", 10), user_id), "profiles": list_profiles(user_id)[:10]}
+    if name == "identify_family_member":
+        identity = identify_family_member(args.get("name", ""), user_id)
+        return {"ok": True, "user_id": identity.user_id, "role": identity.role, "profile_label": identity.profile_label}
+    if name == "create_note":
+        note_id = notes(user_id, args["title"], args["content"])
+        return {"ok": True, "note_id": note_id}
+    if name == "create_task":
+        title, due = parse_task(args.get("title", ""))
+        due = args.get("due_date") or due
+        task_id = tasks(user_id, title, args.get("description"), due)
+        return {"ok": True, "task_id": task_id, "due_date": due}
+    if name == "set_preference":
+        preferences(user_id, args["key"], args["value"])
+        return {"ok": True}
+    if name == "open_allowed_app":
+        return open_app(args["name"])
+    if name == "set_volume":
+        return set_volume(args["percent"])
+    if name == "get_volume":
+        return get_volume()
+    if name == "media_control":
+        return media_control(args["action"])
+    if name == "battery_status":
+        return battery_status()
+    if name == "system_info":
+        return system_info()
+    if name == "clipboard_read":
+        return clipboard_read()
+    if name == "clipboard_write":
+        return clipboard_write(args["text"])
+    if name == "open_url":
+        return open_url(args["url"])
+    if name == "search_web":
+        return {"ok": True, "results": search_web(args["query"])}
+    if name == "get_weather":
+        return {"ok": True, "weather": get_weather(args["city"])}
+    if name == "get_news":
+        return {"ok": True, "news": get_news(args["query"])}
+    if name == "calculate":
+        return {"ok": True, "result": calculate(args["expression"])}
+    if name == "developer_diagnostics":
+        return developer_diagnostics(role)
+    if name == "open_project":
+        return open_project(role)
+    if name == "list_project":
+        return list_project(role)
+    if name == "git_status":
+        return git_status(role)
+    if name == "home_list_devices":
+        return home_list_devices()
+    if name == "home_find_device":
+        return home_find(args.get("query", ""))
+    if name == "home_get_status":
+        return home_get_status(args["provider"], args["device_id"])
+    if name == "home_get_capabilities":
+        return home_get_capabilities(args["provider"], args["device_id"])
+    if name == "home_control_device":
+        return home_control(args["provider"], args["device_id"], args.get("command") or {})
+    if name == "home_get_energy":
+        return home_get_energy(args["provider"], args["device_id"])
+    if name == "home_get_energy_usage":
+        return home_get_energy_usage(args["provider"], args["device_id"], args.get("energy_property", "total_energy"), args.get("period", "DAY"), args.get("start_date"), args.get("end_date"))
+    if name == "home_estimate_cost":
+        return home_estimate_cost(args["kwh"], args["tariff_per_kwh"])
+    return {"ok": False, "error": f"Unknown tool: {name}"}
+
+==================== integrations_smartthings.py ====================
+from __future__ import annotations
+
+import base64
+import json
+import os
+import threading
+import time
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Dict
+
+import requests
+
+ST_BASE_URL = os.getenv("SMARTTHINGS_BASE_URL", "https://api.smartthings.com/v1").rstrip("/")
+ST_APP_ID = os.getenv("SMARTTHINGS_APP_ID", "").strip()
+ST_ACCESS_TOKEN = os.getenv("SMARTTHINGS_ACCESS_TOKEN", "").strip()
+ST_REFRESH_TOKEN = os.getenv("SMARTTHINGS_REFRESH_TOKEN", "").strip()
+ST_CLIENT_ID = os.getenv("SMARTTHINGS_CLIENT_ID", "").strip()
+ST_CLIENT_SECRET = os.getenv("SMARTTHINGS_CLIENT_SECRET", "").strip()
+ST_REDIRECT_URI = os.getenv("SMARTTHINGS_REDIRECT_URI", "").strip()
+ST_TOKEN_EXPIRES_AT = float(os.getenv("SMARTTHINGS_TOKEN_EXPIRES_AT", "0") or 0)
+ST_TIMEOUT = float(os.getenv("SMARTTHINGS_TIMEOUT_SECONDS", "12"))
+ST_TOKEN_FILE = Path(os.getenv("SMARTTHINGS_TOKEN_FILE", os.path.join(os.path.dirname(__file__), ".smartthings_tokens.json")))
+
+_runtime_access_token = ST_ACCESS_TOKEN
+_runtime_refresh_token = ST_REFRESH_TOKEN
+_runtime_expires_at = ST_TOKEN_EXPIRES_AT
+_REFRESH_LOCK = threading.RLock()
+
+
+def configured() -> bool:
+    return bool(_runtime_access_token or (_runtime_refresh_token and ST_CLIENT_ID and ST_CLIENT_SECRET))
+
+
+def oauth_configured() -> bool:
+    return bool(ST_CLIENT_ID and ST_CLIENT_SECRET and ST_REDIRECT_URI)
+
+
+def _load_token_store() -> None:
+    global _runtime_access_token, _runtime_refresh_token, _runtime_expires_at
+    try:
+        if not ST_TOKEN_FILE.exists():
+            return
+        payload = json.loads(ST_TOKEN_FILE.read_text())
+        _runtime_access_token = payload.get("access_token") or _runtime_access_token
+        _runtime_refresh_token = payload.get("refresh_token") or _runtime_refresh_token
+        _runtime_expires_at = float(payload.get("expires_at") or _runtime_expires_at or 0)
+    except Exception:
+        pass
+
+
+def _save_token_store() -> None:
+    ST_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ST_TOKEN_FILE.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps(
+            {
+                "access_token": _runtime_access_token,
+                "refresh_token": _runtime_refresh_token,
+                "expires_at": _runtime_expires_at,
+            }
+        )
+    )
+    os.chmod(tmp, 0o600)
+    tmp.replace(ST_TOKEN_FILE)
+
+
+_load_token_store()
+
+
+def set_oauth_tokens(payload: dict) -> None:
+    global _runtime_access_token, _runtime_refresh_token, _runtime_expires_at
+    _runtime_access_token = str(payload.get("access_token") or "")
+    _runtime_refresh_token = str(payload.get("refresh_token") or _runtime_refresh_token or "")
+    _runtime_expires_at = time.time() + float(payload.get("expires_in", 86400))
+    _save_token_store()
+
+
+def _get_access_token() -> str:
+    global _runtime_access_token, _runtime_refresh_token, _runtime_expires_at
+    with _REFRESH_LOCK:
+        if _runtime_access_token and (_runtime_expires_at <= 0 or time.time() < _runtime_expires_at - 180):
+            return _runtime_access_token
+        if not (_runtime_refresh_token and ST_CLIENT_ID and ST_CLIENT_SECRET):
+            return _runtime_access_token
+        basic = base64.b64encode(f"{ST_CLIENT_ID}:{ST_CLIENT_SECRET}".encode()).decode()
+        response = requests.post(
+            f"{ST_BASE_URL}/oauth/token",
+            headers={
+                "Authorization": f"Basic {basic}",
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data={"grant_type": "refresh_token", "refresh_token": _runtime_refresh_token, "client_id": ST_CLIENT_ID},
+            timeout=ST_TIMEOUT,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"SmartThings token refresh failed: {response.status_code} {response.text[:800]}")
+        set_oauth_tokens(response.json())
+        return _runtime_access_token
+
+
+def _headers() -> Dict[str, str]:
+    token = _get_access_token()
+    if not token:
+        raise RuntimeError("SmartThings is not configured. Complete OAuth connection or provide an access token.")
+    return {"Authorization": f"Bearer {token}", "Accept": "application/json", "Content-Type": "application/json"}
+
+
+def _request(method: str, path_or_url: str, *, json_body: dict | None = None, retries: int = 2) -> Any:
+    url = path_or_url if path_or_url.startswith("http") else f"{ST_BASE_URL}{path_or_url}"
+    for attempt in range(retries + 1):
+        response = requests.request(method, url, headers=_headers(), json=json_body, timeout=ST_TIMEOUT)
+        if response.status_code == 401 and _runtime_refresh_token and ST_CLIENT_ID and ST_CLIENT_SECRET and attempt < retries:
+            with _REFRESH_LOCK:
+                globals()["_runtime_expires_at"] = 0
+                _get_access_token()
+            continue
+        if response.status_code == 429 and attempt < retries:
+            reset = response.headers.get("x-ratelimit-reset")
+            delay = 1.0
+            try:
+                if reset:
+                    delay = max(0.25, min(10.0, float(reset) - time.time()))
+            except ValueError:
+                pass
+            time.sleep(delay)
+            continue
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"text": response.text}
+        if response.status_code >= 400:
+            raise RuntimeError(f"SmartThings API {response.status_code}: {json.dumps(payload)[:1200]}")
+        return payload
+    raise RuntimeError("SmartThings request failed after retries.")
+
+
+def smartthings_list_devices() -> dict:
+    items: list[dict] = []
+    next_url = f"{ST_BASE_URL}/devices?max=200"
+    seen: set[str] = set()
+    while next_url and next_url not in seen:
+        seen.add(next_url)
+        data = _request("GET", next_url)
+        items.extend(data.get("items", []))
+        next_url = ((data.get("_links") or {}).get("next") or {}).get("href")
+    return {"ok": True, "provider": "smartthings", "devices": items}
+
+
+def smartthings_device_status(device_id: str, include_health: bool = False) -> dict:
+    suffix = "?includeHealth=true" if include_health else ""
+    data = _request("GET", f"/devices/{device_id}/status{suffix}")
+    return {"ok": True, "provider": "smartthings", "device_id": device_id, "status": data}
+
+
+def smartthings_device(device_id: str) -> dict:
+    return {"ok": True, "provider": "smartthings", "device_id": device_id, "device": _request("GET", f"/devices/{device_id}")}
+
+
+def smartthings_execute(device_id: str, capability: str, command: str, args: list[Any] | None = None, component: str = "main") -> dict:
+    if not capability or not command:
+        raise ValueError("SmartThings control requires capability and command")
+    body = {"commands": [{"component": component or "main", "capability": capability, "command": command, "arguments": args or []}]}
+    data = _request("POST", f"/devices/{device_id}/commands", json_body=body)
+    return {"ok": True, "provider": "smartthings", "device_id": device_id, "response": data}
+
+
+
+@lru_cache(maxsize=128)
+def smartthings_capability_definition(capability_id: str, version: int = 1) -> dict:
+    return _request("GET", f"/capabilities/{capability_id}/{version}")
+
+
+@lru_cache(maxsize=128)
+def smartthings_device_profile(profile_id: str) -> dict:
+    return _request("GET", f"/deviceprofiles/{profile_id}")
+
+
+def _command_definitions(definition: dict) -> list[dict]:
+    commands = definition.get("commands") or {}
+    if isinstance(commands, dict):
+        out = []
+        for name, spec in commands.items():
+            row = {"name": name}
+            if isinstance(spec, dict):
+                row.update({k: v for k, v in spec.items() if k != "name"})
+            out.append(row)
+        return out
+    if isinstance(commands, list):
+        return [dict(x) for x in commands if isinstance(x, dict)]
+    return []
+
+
+def smartthings_device_controls(device_id: str) -> dict:
+    """Return capability-aware controls without failing the whole endpoint.
+
+    SmartThings device profiles/capability definitions are supplemental APIs; a user
+    token can successfully read a device/status while a profile or individual
+    capability definition is unavailable. In that case we fall back to the device's
+    embedded component/capability list and return per-capability definition errors.
+    """
+    device = smartthings_device(device_id)["device"]
+    profile_id = ((device.get("profile") or {}).get("id"))
+    errors: list[dict] = []
+
+    profile: dict = {}
+    if profile_id:
+        try:
+            profile = smartthings_device_profile(profile_id) or {}
+        except Exception as exc:
+            errors.append({"stage": "device_profile", "error": str(exc)})
+
+    status = smartthings_device_status(device_id).get("status") or {}
+    unavailable = set()
+    try:
+        raw = status.get("components", {}).get("main", {}).get("samsungce.unavailableCapabilities", {})
+        for item in ((raw.get("unavailableCommands") or {}).get("value") or []):
+            unavailable.add(str(item))
+    except Exception as exc:
+        errors.append({"stage": "unavailable_commands", "error": str(exc)})
+
+    components = profile.get("components") or device.get("components") or []
+    controls = []
+    for component in components:
+        component_id = component.get("id") or "main"
+        for cap in component.get("capabilities", []) or []:
+            cap_id = cap.get("id")
+            version = int(cap.get("version") or 1)
+            if not cap_id:
+                continue
+            try:
+                definition = smartthings_capability_definition(cap_id, version)
+            except Exception as exc:
+                definition = {"id": cap_id, "version": version, "commands": {}}
+                errors.append({"stage": "capability_definition", "capability": cap_id, "version": version, "error": str(exc)})
+            commands = []
+            for command in _command_definitions(definition):
+                name = command.get("name")
+                if not name:
+                    continue
+                key = f"{cap_id}.{name}"
+                commands.append({
+                    "name": name,
+                    "arguments": command.get("arguments") or command.get("parameters") or [],
+                    "available": key not in unavailable,
+                })
+            controls.append({
+                "component": component_id,
+                "capability": cap_id,
+                "version": version,
+                "definition_available": bool(_command_definitions(definition) or definition.get("attributes")),
+                "commands": commands,
+                "read_only": not any(c.get("available") for c in commands),
+            })
+
+    return {
+        "ok": True,
+        "provider": "smartthings",
+        "device_id": device_id,
+        "device": device,
+        "profile": profile,
+        "status": status,
+        "unavailable_commands": sorted(unavailable),
+        "controls": controls,
+        "errors": errors,
+        "partial": bool(errors),
+    }
+
+
+def smartthings_find_device(query: str) -> dict:
+    q = (query or "").strip().lower()
+    devices = smartthings_list_devices()["devices"]
+    matches = []
+    for d in devices:
+        hay = " ".join(str(d.get(k, "")) for k in ("name", "label", "deviceTypeName", "manufacturerName", "deviceModel", "deviceId")).lower()
+        if q and q in hay:
+            matches.append(d)
+    return {"ok": True, "provider": "smartthings", "matches": matches}
+
+==================== home_tools.py ====================
+from __future__ import annotations
+
+from datetime import date, timedelta
+from typing import Any
+import re
+
+from integrations_lg import (
+    configured as lg_configured,
+    lg_control_device,
+    lg_device_energy_profile,
+    lg_device_energy_usage,
+    lg_device_profile,
+    lg_device_state,
+    lg_find_device,
+    lg_list_devices,
+)
+
+from integrations_smartthings import (
+    configured as st_configured,
+    smartthings_device,
+    smartthings_device_status,
+    smartthings_execute,
+    smartthings_find_device,
+    smartthings_list_devices,
+)
+
+
+# ---------------------------------------------------------------------------
+# Known local device aliases
+# ---------------------------------------------------------------------------
+#
+# These aliases are ONLY local names.
+# They are NOT SmartThings credentials or fake provider IDs.
+#
+# Add more aliases later as devices are added.
+#
+KNOWN_DEVICE_ALIASES = {
+    "samsung ac": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+    "samsung air conditioner": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+    "room ac": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+    "room air conditioner": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+
+    # Local nickname requested by the assistant/device setup.
+    "mother room ac": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+    "mothers room ac": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+    "mother's room ac": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+}
+
+
+# ---------------------------------------------------------------------------
+# Generic helpers
+# ---------------------------------------------------------------------------
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    if isinstance(value, dict):
+        return {
+            str(k): _json_safe(v)
+            for k, v in value.items()
+        }
+
+    if isinstance(value, list):
+        return [
+            _json_safe(v)
+            for v in value
+        ]
+
+    return str(value)
+
+
+def _normalise_text(value: Any) -> str:
+    if value is None:
+        return ""
+
+    text = str(value).strip().lower()
+
+    text = re.sub(
+        r"[^a-z0-9\s'-]",
+        " ",
+        text,
+    )
+
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
+
+    return text.strip()
+
+
+def _looks_like_uuid(value: str) -> bool:
+    if not isinstance(value, str):
+        return False
+
+    return bool(
+        re.fullmatch(
+            r"[0-9a-fA-F]{8}-"
+            r"[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{4}-"
+            r"[0-9a-fA-F]{12}",
+            value.strip(),
+        )
+    )
+
+
+def _is_placeholder_device_id(value: str) -> bool:
+    if not isinstance(value, str):
+        return True
+
+    value = value.strip().lower()
+
+    if not value:
+        return True
+
+    bad_tokens = (
+        "placeholder",
+        "dummy",
+        "example",
+        "unknown",
+        "device_id_here",
+        "your_device_id",
+        "mother_room_ac_id_placeholder",
+    )
+
+    if any(token in value for token in bad_tokens):
+        return True
+
+    return False
+
+
+def _device_id(device: dict) -> str:
+    raw = device.get("raw") or {}
+
+    return str(
+        device.get("id")
+        or device.get("device_id")
+        or device.get("deviceId")
+        or raw.get("deviceId")
+        or ""
+    ).strip()
+
+
+# ---------------------------------------------------------------------------
+# Provider normalization
+# ---------------------------------------------------------------------------
+
+def _normalize_lg(d: dict) -> dict:
+    info = d.get("deviceInfo") or {}
+
+    return {
+        "provider": "lg_thinq",
+        "id": d.get("deviceId"),
+        "name": info.get("alias") or d.get("deviceId"),
+        "model": info.get("modelName"),
+        "type": info.get("deviceType")
+        or info.get("deviceTypeName"),
+        "online": d.get("online")
+        if "online" in d
+        else None,
+        "raw": _json_safe(d),
+    }
+
+
+def _normalize_st(d: dict) -> dict:
+    return {
+        "provider": "smartthings",
+        "id": d.get("deviceId"),
+        "name": (
+            d.get("label")
+            or d.get("name")
+            or d.get("deviceId")
+        ),
+        "model": (
+            d.get("deviceModel")
+            or d.get("deviceManufacturerCode")
+        ),
+        "type": d.get("deviceTypeName"),
+        "manufacturer": d.get("manufacturerName"),
+        "location_id": d.get("locationId"),
+        "room_id": d.get("roomId"),
+        "raw": _json_safe(d),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Device listing
+# ---------------------------------------------------------------------------
+
+def home_list_devices() -> dict:
+    results: list[dict] = []
+    provider_status: dict[str, str] = {}
+    errors: list[str] = []
+
+    # LG ThinQ
+    try:
+        if not lg_configured():
+            provider_status["lg_thinq"] = "unconfigured"
+        else:
+            results.extend(
+                _normalize_lg(d)
+                for d in lg_list_devices().get("devices", [])
+            )
+
+            provider_status["lg_thinq"] = "ok"
+
+    except Exception as exc:
+        provider_status["lg_thinq"] = "error"
+        errors.append(f"LG ThinQ: {exc}")
+
+    # SmartThings
+    try:
+        if not st_configured():
+            provider_status["smartthings"] = "unconfigured"
+        else:
+            results.extend(
+                _normalize_st(d)
+                for d in smartthings_list_devices().get(
+                    "devices",
+                    [],
+                )
+            )
+
+            provider_status["smartthings"] = "ok"
+
+    except Exception as exc:
+        provider_status["smartthings"] = "error"
+        errors.append(f"SmartThings: {exc}")
+
+    return {
+        "ok": not errors,
+        "devices": results,
+        "count": len(results),
+        "provider_status": provider_status,
+        "errors": errors,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Status
+# ---------------------------------------------------------------------------
+
+def home_get_status(
+    provider: str,
+    device_id: str,
+) -> dict:
+
+    provider = _normalise_text(provider)
+
+    if provider == "lg_thinq":
+        return lg_device_state(device_id)
+
+    if provider == "smartthings":
+        return smartthings_device_status(
+            device_id,
+            include_health=True,
+        )
+
+    raise ValueError(
+        "Unknown home provider"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Capabilities
+# ---------------------------------------------------------------------------
+
+def home_get_capabilities(
+    provider: str,
+    device_id: str,
+) -> dict:
+
+    provider = _normalise_text(provider)
+
+    if provider == "lg_thinq":
+        return lg_device_profile(device_id)
+
+    if provider == "smartthings":
+        return smartthings_device(device_id)
+
+    raise ValueError(
+        "Unknown home provider"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Device resolution
+# ---------------------------------------------------------------------------
+
+def _resolve_smartthings_device(
+    device_id: str | None,
+    query: str | None,
+) -> tuple[str, dict]:
+
+    supplied_id = (device_id or "").strip()
+    query_text = _normalise_text(query)
+
+    # ---------------------------------------------------------------
+    # 1. Explicit real UUID
+    # ---------------------------------------------------------------
+
+    if (
+        supplied_id
+        and not _is_placeholder_device_id(supplied_id)
+        and _looks_like_uuid(supplied_id)
+    ):
+        devices = smartthings_list_devices().get(
+            "devices",
+            [],
+        )
+
+        for device in devices:
+            if str(
+                device.get("deviceId", "")
+            ).strip() == supplied_id:
+
+                return supplied_id, device
+
+        raise ValueError(
+            f"SmartThings device {supplied_id} "
+            "is not currently discovered."
+        )
+
+    # ---------------------------------------------------------------
+    # 2. Alias resolution
+    # ---------------------------------------------------------------
+
+    if query_text:
+        alias = KNOWN_DEVICE_ALIASES.get(
+            query_text
+        )
+
+        if alias and alias["provider"] == "smartthings":
+            real_id = alias["device_id"]
+
+            devices = smartthings_list_devices().get(
+                "devices",
+                [],
+            )
+
+            for device in devices:
+                if str(
+                    device.get("deviceId", "")
+                ).strip() == real_id:
+
+                    return real_id, device
+
+            raise ValueError(
+                f"The alias '{query}' is configured, "
+                "but that SmartThings device is no longer discovered."
+            )
+
+    # ---------------------------------------------------------------
+    # 3. Normal SmartThings search
+    # ---------------------------------------------------------------
+
+    if query_text:
+        result = smartthings_find_device(
+            query_text
+        )
+
+        matches = result.get(
+            "matches",
+            [],
+        )
+
+        if len(matches) == 1:
+            device = matches[0]
+
+            real_id = str(
+                device.get("deviceId", "")
+            ).strip()
+
+            if not _looks_like_uuid(real_id):
+                raise ValueError(
+                    "SmartThings returned an invalid device ID."
+                )
+
+            return real_id, device
+
+        if len(matches) > 1:
+            names = [
+                str(
+                    item.get("label")
+                    or item.get("name")
+                    or item.get("deviceId")
+                )
+                for item in matches[:5]
+            ]
+
+            raise ValueError(
+                "Multiple SmartThings devices match "
+                f"'{query}': {', '.join(names)}. "
+                "Please specify the device more precisely."
+            )
+
+    raise ValueError(
+        "I could not resolve a real SmartThings device. "
+        "Use the device name or room nickname."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Home control
+# ---------------------------------------------------------------------------
+
+def home_control(
+    provider: str,
+    device_id: str,
+    command: dict,
+) -> dict:
+
+    provider = _normalise_text(provider)
+
+    if not isinstance(command, dict):
+        raise ValueError(
+            "Home control command must be an object."
+        )
+
+    # ---------------------------------------------------------------
+    # LG ThinQ
+    # ---------------------------------------------------------------
+
+    if provider == "lg_thinq":
+
+        result = lg_control_device(
+            device_id,
+            command,
+        )
+
+        try:
+            result["verified_state"] = (
+                lg_device_state(
+                    device_id
+                ).get("state")
+            )
+        except Exception as exc:
+            result["verification_error"] = str(exc)
+
+        return result
+
+    # ---------------------------------------------------------------
+    # Samsung SmartThings
+    # ---------------------------------------------------------------
+
+    if provider == "smartthings":
+
+        capability = command.get(
+            "capability"
+        )
+
+        action = command.get(
+            "command"
+        )
+
+        # Accept both.
+        args = command.get(
+            "arguments"
+        )
+
+        if args is None:
+            args = command.get(
+                "args"
+            )
+
+        if args is None:
+            args = []
+
+        component = command.get(
+            "component",
+            "main",
+        )
+
+        # Semantic device query.
+        device_query = (
+            command.get("device_query")
+            or command.get("device_name")
+            or command.get("room")
+            or command.get("query")
+        )
+
+        # -----------------------------------------------------------
+        # Resolve actual device
+        # -----------------------------------------------------------
+
+        resolved_id, resolved_device = (
+            _resolve_smartthings_device(
+                device_id=device_id,
+                query=device_query,
+            )
+        )
+
+        # Final hard safety check.
+        if not _looks_like_uuid(
+            resolved_id
+        ):
+            raise ValueError(
+                "Refusing SmartThings control because "
+                "the resolved device ID is invalid."
+            )
+
+        if not capability:
+            raise ValueError(
+                "SmartThings control requires capability."
+            )
+
+        if not action:
+            raise ValueError(
+                "SmartThings control requires command."
+            )
+
+        if not isinstance(args, list):
+            raise ValueError(
+                "SmartThings command arguments must be a list."
+            )
+
+        # -----------------------------------------------------------
+        # Execute
+        # -----------------------------------------------------------
+
+        result = smartthings_execute(
+            resolved_id,
+            capability,
+            action,
+            args,
+            component,
+        )
+
+        # -----------------------------------------------------------
+        # Attach resolution information
+        # -----------------------------------------------------------
+
+        result["resolved_device"] = {
+            "id": resolved_id,
+            "provider": "smartthings",
+            "name": (
+                resolved_device.get("label")
+                or resolved_device.get("name")
+                or resolved_id
+            ),
+            "device_type": resolved_device.get(
+                "deviceTypeName"
+            ),
+            "room_id": resolved_device.get(
+                "roomId"
+            ),
+        }
+
+        # -----------------------------------------------------------
+        # Verify final state
+        # -----------------------------------------------------------
+
+        try:
+            result["verified_status"] = (
+                smartthings_device_status(
+                    resolved_id,
+                    include_health=True,
+                ).get("status")
+            )
+        except Exception as exc:
+            result["verification_error"] = str(exc)
+
+        return result
+
+    raise ValueError(
+        "Unknown home provider"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Device search
+# ---------------------------------------------------------------------------
+
+def home_find(query: str) -> dict:
+
+    matches: list[dict] = []
+    errors: list[str] = []
+
+    query = query.strip()
+
+    # LG
+    try:
+        provider_matches = (
+            lg_find_device(
+                query
+            ).get("matches", [])
+        )
+
+        matches.extend(
+            _normalize_lg(d)
+            for d in provider_matches
+        )
+
+    except Exception as exc:
+        errors.append(
+            f"LG ThinQ: {exc}"
+        )
+
+    # SmartThings
+    try:
+        provider_matches = (
+            smartthings_find_device(
+                query
+            ).get("matches", [])
+        )
+
+        matches.extend(
+            _normalize_st(d)
+            for d in provider_matches
+        )
+
+    except Exception as exc:
+        errors.append(
+            f"SmartThings: {exc}"
+        )
+
+    # Local aliases
+    normalised_query = _normalise_text(
+        query
+    )
+
+    alias = KNOWN_DEVICE_ALIASES.get(
+        normalised_query
+    )
+
+    if alias:
+        try:
+            devices = (
+                smartthings_list_devices()
+                .get("devices", [])
+            )
+
+            for device in devices:
+                if (
+                    device.get("deviceId")
+                    == alias["device_id"]
+                ):
+                    matches.append(
+                        _normalize_st(device)
+                    )
+
+        except Exception as exc:
+            errors.append(
+                f"SmartThings alias: {exc}"
+            )
+
+    # Remove duplicate devices.
+    unique: dict[tuple[str, str], dict] = {}
+
+    for item in matches:
+        key = (
+            item.get("provider", ""),
+            item.get("id", ""),
+        )
+
+        unique[key] = item
+
+    return {
+        "ok": True,
+        "matches": _json_safe(
+            list(unique.values())
+        ),
+        "errors": errors,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Energy helpers
+# ---------------------------------------------------------------------------
+
+def _find_energy_values(
+    value: Any,
+    path: str = "",
+) -> list[dict]:
+
+    found: list[dict] = []
+
+    if isinstance(value, dict):
+
+        for key, child in value.items():
+
+            key_path = (
+                f"{path}.{key}"
+                if path
+                else str(key)
+            )
+
+            if (
+                isinstance(
+                    child,
+                    (int, float),
+                )
+                and any(
+                    token in str(key).lower()
+                    for token in (
+                        "energy",
+                        "power",
+                        "kwh",
+                        "watt",
+                        "consumption",
+                    )
+                )
+            ):
+                found.append(
+                    {
+                        "path": key_path,
+                        "value": child,
+                    }
+                )
+
+            found.extend(
+                _find_energy_values(
+                    child,
+                    key_path,
+                )
+            )
+
+    elif isinstance(value, list):
+
+        for idx, child in enumerate(value):
+
+            found.extend(
+                _find_energy_values(
+                    child,
+                    f"{path}[{idx}]",
+                )
+            )
+
+    return found
+
+
+def home_get_energy(
+    provider: str,
+    device_id: str,
+) -> dict:
+
+    provider = _normalise_text(
+        provider
+    )
+
+    if provider == "lg_thinq":
+
+        try:
+            profile = (
+                lg_device_energy_profile(
+                    device_id
+                )
+            )
+
+        except Exception:
+            profile = {
+                "profile": {}
+            }
+
+        status = lg_device_state(
+            device_id
+        )
+
+        values = _find_energy_values(
+            {
+                "profile": profile,
+                "status": status,
+            }
+        )
+
+        return {
+            "ok": True,
+            "provider": provider,
+            "device_id": device_id,
+            "energy_profile": profile.get(
+                "profile"
+            ),
+            "energy_values": values,
+        }
+
+    if provider == "smartthings":
+
+        status = smartthings_device_status(
+            device_id
+        )
+
+        values = _find_energy_values(
+            status.get("status")
+            or status
+        )
+
+        return {
+            "ok": True,
+            "provider": provider,
+            "device_id": device_id,
+            "energy_values": values,
+        }
+
+    raise ValueError(
+        "Unknown home provider"
+    )
+
+
+def home_get_energy_usage(
+    provider: str,
+    device_id: str,
+    energy_property: str,
+    period: str = "DAY",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict:
+
+    if provider != "lg_thinq":
+        return home_get_energy(
+            provider,
+            device_id,
+        )
+
+    end = (
+        date.fromisoformat(end_date)
+        if end_date
+        else date.today()
+    )
+
+    start = (
+        date.fromisoformat(start_date)
+        if start_date
+        else end - timedelta(days=1)
+    )
+
+    return lg_device_energy_usage(
+        device_id,
+        energy_property,
+        period,
+        start.isoformat(),
+        end.isoformat(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Cost estimation
+# ---------------------------------------------------------------------------
+
+def home_estimate_cost(
+    kwh: float,
+    tariff_per_kwh: float,
+) -> dict:
+
+    if kwh < 0:
+        raise ValueError(
+            "kWh must be non-negative"
+        )
+
+    if tariff_per_kwh < 0:
+        raise ValueError(
+            "Tariff must be non-negative"
+        )
+
+    return {
+        "ok": True,
+        "kwh": kwh,
+        "tariff_per_kwh": tariff_per_kwh,
+        "estimated_cost": round(
+            kwh * tariff_per_kwh,
+            2,
+        ),
+    } 

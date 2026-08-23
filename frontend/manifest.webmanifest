@@ -1,0 +1,9 @@
+{
+  "name": "JAMAL-FAMILY-ASSISTANT",
+  "short_name": "Saba",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06050b",
+  "theme_color": "#06050b",
+  "description": "Jamal Family Assistant \u2014 Saba"
+}

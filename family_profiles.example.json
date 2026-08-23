@@ -1,0 +1,114 @@
+{
+  "profiles": [
+    {
+      "label": "Ahmed Qutubuddin",
+      "relationship": "self",
+      "preferred_name": "Ahmed",
+      "languages": "English, Urdu, Hindi",
+      "role": "originator / creator / boss",
+      "occupation": "AI engineer",
+      "interests": "AI, software engineering, product building, systems",
+      "notes": "Primary creator of Saba. Local double-clap activation elevates the current session into creator mode."
+    },
+    {
+      "label": "Khaja Moinuddin",
+      "relationship": "father",
+      "preferred_name": "His Highness",
+      "languages": "Urdu, Hindi",
+      "role": "family elder / royal",
+      "occupation": "",
+      "interests": "ghazals, sher, shayari, music",
+      "notes": "Prefer advanced Urdu in natural conversation when appropriate."
+    },
+    {
+      "label": "Sayeeda Nasreen Sultana",
+      "relationship": "mother",
+      "preferred_name": "Her Highness / Ms Sayeeda",
+      "languages": "Urdu, Hindi",
+      "role": "family elder / royal",
+      "occupation": "",
+      "interests": "homeopathy, family, general wellbeing",
+      "notes": "Often discusses homeopathy and general health topics. Do not diagnose or overstate medical certainty; encourage qualified professional care for serious concerns."
+    },
+    {
+      "label": "Sheema Baqtiyar",
+      "relationship": "eldest sister",
+      "preferred_name": "Didi",
+      "languages": "English, Urdu, Hindi",
+      "role": "family member",
+      "occupation": "Medicine doctor",
+      "interests": "medicine, family",
+      "notes": "Married to Kamal Hasan."
+    },
+    {
+      "label": "Kamal Hasan",
+      "relationship": "brother-in-law",
+      "preferred_name": "Kamal",
+      "languages": "English, Urdu, Hindi",
+      "role": "family member",
+      "occupation": "Eye doctor",
+      "interests": "medicine",
+      "notes": "Husband of Sheema Baqtiyar; expected to work in Saudi Arabia."
+    },
+    {
+      "label": "Ayeshaa",
+      "relationship": "niece",
+      "preferred_name": "Khatta",
+      "languages": "English, Urdu, Hindi",
+      "role": "family member / child",
+      "occupation": "student",
+      "interests": "school, family",
+      "notes": "10-year-old girl; treat age-appropriate topics carefully."
+    },
+    {
+      "label": "Taha",
+      "relationship": "second eldest sister",
+      "preferred_name": "Taha",
+      "languages": "English, Urdu, Hindi",
+      "role": "family member",
+      "occupation": "Data science engineer",
+      "interests": "data science, engineering",
+      "notes": "Plans to work in Saudi Arabia."
+    },
+    {
+      "label": "Quashiya Mudassir",
+      "relationship": "third eldest sister",
+      "preferred_name": "Shahshiya",
+      "languages": "English, Urdu, Hindi",
+      "role": "family member",
+      "occupation": "Professional business crew",
+      "interests": "international travel",
+      "notes": "Lives in Qatar and travels frequently around the world."
+    },
+    {
+      "label": "Saniya Noorain",
+      "relationship": "fourth eldest sister",
+      "preferred_name": "Moti",
+      "languages": "English, Urdu, Hindi",
+      "role": "family member",
+      "occupation": "Data science engineer",
+      "interests": "humor, family",
+      "notes": "Works in Saudi Arabia and enjoys joking with Ahmed."
+    },
+    {
+      "label": "Ahmed Hussamuddin",
+      "relationship": "eldest brother",
+      "preferred_name": "Bro",
+      "languages": "English, Urdu, Hindi",
+      "role": "family member",
+      "occupation": "Cloud security engineer",
+      "interests": "leadership, strong mindset, security",
+      "notes": "Known for a strong mindset and leadership qualities."
+    },
+    {
+      "label": "Ahmed Fareeduddin",
+      "relationship": "second eldest brother",
+      "preferred_name": "Zaid Bhaiya",
+      "languages": "English, Urdu, Hindi",
+      "role": "family member",
+      "occupation": "DevOps engineer",
+      "interests": "DevOps, engineering",
+      "notes": "Family member of the Jamal household."
+    }
+  ]
+}
