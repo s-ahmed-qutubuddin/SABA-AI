@@ -17,7 +17,12 @@ SESSION_COOKIE = "saba_session"
 GATE_COOKIE = "saba_gate"
 SESSION_TTL = int(os.getenv("SABA_SESSION_TTL_SECONDS", str(60 * 60 * 24 * 30)))
 GATE_TTL = int(os.getenv("SABA_GATE_TTL_SECONDS", "900"))
-SECURE_COOKIES = os.getenv("SABA_SECURE_COOKIES", "").lower() in {"1", "true", "yes", "on"}
+SECURE_COOKIES = os.getenv("SABA_SECURE_COOKIES", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 @dataclass(frozen=True)
@@ -28,6 +33,11 @@ class SessionIdentity:
     role: str
     label: str
     preferred_name: str | None = None
+
+    @property
+    def profile_label(self) -> str:
+        """Compatibility alias used by the router/tool layer."""
+        return self.label
 
     @property
     def is_owner(self) -> bool:
@@ -43,25 +53,54 @@ def _secret() -> bytes:
 def _encode(payload: dict[str, Any], ttl: int) -> str:
     body = dict(payload)
     body["exp"] = int(time.time()) + ttl
-    raw = json.dumps(body, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+    raw = json.dumps(
+        body,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
     encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-    sig = hmac.new(_secret(), encoded.encode("ascii"), hashlib.sha256).digest()
+
+    sig = hmac.new(
+        _secret(),
+        encoded.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+
     signature = base64.urlsafe_b64encode(sig).decode("ascii").rstrip("=")
+
     return f"{encoded}.{signature}"
 
 
 def _decode(token: str) -> dict[str, Any] | None:
     try:
         encoded, signature = token.split(".", 1)
-        expected = hmac.new(_secret(), encoded.encode("ascii"), hashlib.sha256).digest()
-        actual = base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))
+
+        expected = hmac.new(
+            _secret(),
+            encoded.encode("ascii"),
+            hashlib.sha256,
+        ).digest()
+
+        actual = base64.urlsafe_b64decode(
+            signature + "=" * (-len(signature) % 4)
+        )
+
         if not hmac.compare_digest(expected, actual):
             return None
-        raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+
+        raw = base64.urlsafe_b64decode(
+            encoded + "=" * (-len(encoded) % 4)
+        )
+
         payload = json.loads(raw.decode("utf-8"))
+
         if int(payload.get("exp", 0)) <= int(time.time()):
             return None
+
         return payload
+
     except Exception:
         return None
 
@@ -71,7 +110,10 @@ def family_code_configured() -> bool:
 
 
 def verify_family_code(code: str) -> bool:
-    return bool(SABA_ACCESS_CODE) and hmac.compare_digest(str(code).strip(), SABA_ACCESS_CODE)
+    return bool(SABA_ACCESS_CODE) and hmac.compare_digest(
+        str(code).strip(),
+        SABA_ACCESS_CODE,
+    )
 
 
 def set_gate(response: Response) -> None:
@@ -141,9 +183,15 @@ def clear_auth(response: Response) -> None:
 def identity_from_token(token: str | None) -> SessionIdentity | None:
     if not token:
         return None
+
     payload = _decode(token)
-    if not payload or "user_id" not in payload or "owner_user_id" not in payload:
+
+    if not payload:
         return None
+
+    if "user_id" not in payload or "owner_user_id" not in payload:
+        return None
+
     try:
         return SessionIdentity(
             user_id=int(payload["user_id"]),
@@ -158,21 +206,33 @@ def identity_from_token(token: str | None) -> SessionIdentity | None:
 
 
 def identity_from_request(request: Request) -> SessionIdentity | None:
-    return identity_from_token(request.cookies.get(SESSION_COOKIE))
+    return identity_from_token(
+        request.cookies.get(SESSION_COOKIE)
+    )
 
 
 def require_identity(request: Request) -> SessionIdentity:
     identity = identity_from_request(request)
+
     if identity is None:
-        raise HTTPException(status_code=401, detail="SABA session required")
+        raise HTTPException(
+            status_code=401,
+            detail="SABA session required",
+        )
+
     return identity
 
 
-def identity_from_cookie_header(cookie_header: str | None) -> SessionIdentity | None:
+def identity_from_cookie_header(
+    cookie_header: str | None,
+) -> SessionIdentity | None:
     if not cookie_header:
         return None
+
     for chunk in cookie_header.split(";"):
         name, _, value = chunk.strip().partition("=")
+
         if name == SESSION_COOKIE:
             return identity_from_token(value)
+
     return None
