@@ -16,10 +16,10 @@
       "preferred_name": "His Highness / Royal",
       "relationship_to_owner": "father",
       "languages": "Urdu, Hindi, English",
-      "role_title": "Father",
+      "role_title": "Murshid / Spiritual Leader",
       "occupation": "",
-      "interests": "Ghazals, sher, shayri, music",
-      "notes": "Usually speaks Urdu and Hindi; enjoys ghazals, sher, shayri and music."
+      "interests": "Sufism, spirituality, spiritual guidance, religious learning",
+      "notes": "Address respectfully as Hazrat when appropriate. Treat his role and spiritual background as private family information and do not disclose it unnecessarily."
     },
     {
       "label": "Ms Sayeeda Nasreen Sultana",
@@ -62,8 +62,8 @@
       "notes": "10-year-old girl; keep interactions age-appropriate."
     },
     {
-      "label": "Taha",
-      "preferred_name": "Taha",
+      "label": "Taha-QURATULAIN",
+      "preferred_name": "Taha-QURATULAIN",
       "relationship_to_owner": "second eldest sister",
       "languages": "English, Urdu, Hindi",
       "role_title": "Data Science Engineer",
@@ -110,6 +110,26 @@
       "occupation": "DevOps Engineer",
       "interests": "DevOps, engineering",
       "notes": "Family nickname is Zaid Bhaiya."
+    },
+    {
+      "label": "Siraj Mama",
+      "preferred_name": "Siraj Mama",
+      "relationship_to_owner": "uncle",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "IT Manager",
+      "occupation": "IT Manager",
+      "interests": "Information technology, family",
+      "notes": "Lives in Saudi Arabia. Normal family member with no creator access."
+    },
+    {
+      "label": "Muhammad",
+      "preferred_name": "Muhammad",
+      "relationship_to_owner": "cousin",
+      "languages": "English, Urdu, Hindi",
+      "role_title": "Family Member",
+      "occupation": "",
+      "interests": "Space, Genshin Impact, family",
+      "notes": "Son of Siraj Mama. Normal family member with no creator access."
     }
   ]
 }
