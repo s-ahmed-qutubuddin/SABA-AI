@@ -35,14 +35,18 @@ class SessionIdentity:
     preferred_name: str | None = None
 
     @property
-    def profile_label(self) -> str:
-        """Compatibility alias used by the router/tool layer."""
-        return self.label
+def profile_label(self) -> str:
+    """Compatibility alias used by the router/tool layer."""
+    return self.label
 
-    @property
-    def is_owner(self) -> bool:
-        return self.role == "owner"
+@property
+def is_creator(self) -> bool:
+    """True for the creator/owner account only."""
+    return self.role in {"creator", "owner"}
 
+@property
+def is_owner(self) -> bool:
+    return self.role == "owner"
 
 def _secret() -> bytes:
     if not SABA_SESSION_SECRET:
