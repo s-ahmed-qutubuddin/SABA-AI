@@ -27,7 +27,9 @@ const VoiceStateContext = createContext<VoiceStateValue | null>(null);
 
 const ACTIVATION_WS_URL = (
   import.meta.env.VITE_ACTIVATION_WS_URL ||
-  "ws://localhost:8000/ws/activation"
+  (typeof window !== "undefined"
+    ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws/activation`
+    : "ws://localhost:8000/ws/activation")
 ).replace(/\/$/, "");
 
 // Google recommends sending Live API audio in reasonably sized PCM chunks.

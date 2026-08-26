@@ -67,6 +67,22 @@ KNOWN_DEVICE_ALIASES = {
         "provider": "smartthings",
         "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
     },
+    "samsung room ac": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+    "samsung room air conditioner": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+    "mums room ac": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
+    "moms room ac": {
+        "provider": "smartthings",
+        "device_id": "82bc5724-3285-86cd-c8d8-ff7c68b71866",
+    },
 }
 
 
@@ -498,6 +514,112 @@ def _capability_commands(
     return definition, rows
 
 
+def _coerce_smartthings_arguments(
+    command_row: dict,
+    args: list[Any],
+) -> list[Any]:
+    """
+    Normalize model/frontend arguments to the exact SmartThings command
+    argument shape.
+
+    SmartThings expects `arguments` to be a list whose entries match the
+    command's declared parameter schemas. In particular, many Samsung AC
+    commands expect a single STRING value, not a JSON object such as
+    {"mode": "cool"}.
+    """
+    declared = command_row.get("arguments") or []
+    incoming = list(args or [])
+
+    if not declared:
+        # Commands such as switch.on/off and raiseSetpoint take no arguments.
+        return []
+
+    # The common model/tool shape may be:
+    #   [{"mode": "cool"}]
+    # while SmartThings needs:
+    #   ["cool"]
+    if len(incoming) == 1 and isinstance(incoming[0], dict):
+        obj = incoming[0]
+
+        if len(declared) == 1:
+            param_name = str(declared[0].get("name") or "").strip()
+
+            if param_name and param_name in obj:
+                incoming = [obj[param_name]]
+            elif len(obj) == 1:
+                incoming = [next(iter(obj.values()))]
+
+    normalized: list[Any] = []
+
+    for index, spec in enumerate(declared):
+        if index >= len(incoming):
+            if not spec.get("optional", False):
+                raise ValueError(
+                    f"SmartThings command '{command_row.get('name')}' "
+                    f"requires argument '{spec.get('name')}'."
+                )
+            break
+
+        value = incoming[index]
+        schema = spec.get("schema") or {}
+        expected_type = schema.get("type")
+
+        if expected_type == "string":
+            if isinstance(value, (dict, list)):
+                raise ValueError(
+                    f"SmartThings argument '{spec.get('name')}' "
+                    "must be a string."
+                )
+            value = str(value)
+
+        elif expected_type == "integer":
+            if isinstance(value, bool):
+                raise ValueError(
+                    f"SmartThings argument '{spec.get('name')}' "
+                    "must be an integer."
+                )
+            try:
+                value = int(value)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"SmartThings argument '{spec.get('name')}' "
+                    "must be an integer."
+                )
+
+        elif expected_type == "number":
+            if isinstance(value, bool):
+                raise ValueError(
+                    f"SmartThings argument '{spec.get('name')}' "
+                    "must be a number."
+                )
+            try:
+                value = float(value)
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"SmartThings argument '{spec.get('name')}' "
+                    "must be a number."
+                )
+
+        elif expected_type == "boolean":
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"true", "1", "yes", "on"}:
+                    value = True
+                elif lowered in {"false", "0", "no", "off"}:
+                    value = False
+
+        # Preserve objects/lists when the provider explicitly declares them.
+        normalized.append(value)
+
+    if len(incoming) > len(declared):
+        raise ValueError(
+            f"SmartThings command '{command_row.get('name')}' expects "
+            f"{len(declared)} argument(s), received {len(incoming)}."
+        )
+
+    return normalized
+
+
 def _resolve_smartthings_command(
     device_id: str,
     capability: str,
@@ -505,8 +627,9 @@ def _resolve_smartthings_command(
     args: list[Any],
 ) -> tuple[str, list[Any]]:
     """
-    Convert common natural-language/model aliases into a command that the
-    actual SmartThings capability definition exposes.
+    Convert common natural-language/model aliases into a command exposed by
+    the real SmartThings capability definition, while validating/coercing
+    arguments to the provider's declared schema.
     """
     action_text = _normalise_command_name(action)
     original_args = list(args or [])
@@ -517,18 +640,21 @@ def _resolve_smartthings_command(
     )
 
     command_names = {
-        _normalise_command_name(
-            row["name"]
-        ): row
+        _normalise_command_name(row["name"]): row
         for row in commands
     }
 
+    def finish(row: dict, candidate_args: list[Any] | None = None) -> tuple[str, list[Any]]:
+        return row["name"], _coerce_smartthings_arguments(
+            row,
+            original_args if candidate_args is None else candidate_args,
+        )
+
     # Exact command first.
     if action_text in command_names:
-        row = command_names[action_text]
-        return row["name"], original_args
+        return finish(command_names[action_text])
 
-    # Common human-language values.
+    # Common human-language values/actions.
     simple_action_map = {
         "turnon": ("on", []),
         "on": ("on", []),
@@ -540,26 +666,24 @@ def _resolve_smartthings_command(
         "stop": ("off", []),
     }
 
-    if capability in {
-        "switch",
-        "samsungce.airConditionerBeep",
-        "samsungce.airConditionerLighting",
-    } and action_text in simple_action_map:
+    if action_text in simple_action_map:
         candidate, candidate_args = simple_action_map[action_text]
 
-        if _normalise_command_name(candidate) in command_names:
-            return command_names[
-                _normalise_command_name(candidate)
-            ]["name"], candidate_args
+        if candidate in command_names:
+            return finish(
+                command_names[candidate],
+                candidate_args,
+            )
 
-    # If the model supplied a value as the command itself, turn it into the
-    # appropriate set-* operation for the common AC capabilities.
+    # AC operating mode.
     if capability == "airConditionerMode":
         values = {"auto", "cool", "dry", "fan"}
+
         if action_text in values and not original_args:
             original_args = [action_text]
             action_text = "setairconditionermode"
 
+    # AC fan mode.
     elif capability == "airConditionerFanMode":
         values = {
             "auto",
@@ -568,52 +692,94 @@ def _resolve_smartthings_command(
             "high",
             "turbo",
         }
+
         if action_text in values and not original_args:
             original_args = [action_text]
             action_text = "setfanmode"
 
+    # Samsung custom optional AC mode.
     elif capability == "custom.airConditionerOptionalMode":
         values = {
             "off",
+            "energysaving",
+            "windfree",
             "sleep",
-            "quiet",
+            "windfreesleep",
             "speed",
+            "smart",
+            "quiet",
+            "twostep",
+            "comfort",
+            "dlightcool",
+            "drycomfort",
+            "cubepurify",
+            "longwind",
+            "motionindirect",
+            "motiondirect",
         }
+
         if action_text in values and not original_args:
             original_args = [action_text]
 
-    elif capability == "custom.autoCleaningMode":
-        values = {
-            "on",
-            "off",
+        # Provider uses camelCase enum values.
+        enum_map = {
+            "energysaving": "energySaving",
+            "windfree": "windFree",
+            "windfreesleep": "windFreeSleep",
+            "twostep": "twoStep",
+            "dlightcool": "dlightCool",
+            "drycomfort": "dryComfort",
+            "cubepurify": "cubePurify",
+            "longwind": "longWind",
+            "motionindirect": "motionIndirect",
+            "motiondirect": "motionDirect",
         }
+
+        if original_args and len(original_args) == 1:
+            value = original_args[0]
+            if isinstance(value, str):
+                original_args = [enum_map.get(
+                    _normalise_command_name(value),
+                    value,
+                )]
+
+        if action_text == "setacoptionalmode":
+            pass
+
+    # Samsung custom auto-cleaning mode.
+    elif capability == "custom.autoCleaningMode":
+        values = {"on", "off"}
+
         if action_text in values and not original_args:
             original_args = [action_text]
 
     # Try common set-command naming variants.
-    candidates = []
+    candidates: list[tuple[int, dict]] = []
 
     if action_text.startswith("set") and action_text in command_names:
-        candidates.append(command_names[action_text])
+        candidates.append(
+            (1000, command_names[action_text])
+        )
 
     for row in commands:
         normalized = _normalise_command_name(
             row["name"]
         )
 
-        # Strong fuzzy match.
         score = 0
 
-        if action_text in normalized:
+        if action_text == normalized:
+            score += 1000
+        elif action_text in normalized:
             score += 100
-
-        if normalized in action_text:
+        elif normalized in action_text:
             score += 90
 
         action_tokens = re.findall(
             r"[a-z]+",
             action.lower(),
         )
+
         for token in action_tokens:
             if len(token) >= 3 and token in normalized:
                 score += 10
@@ -624,21 +790,17 @@ def _resolve_smartthings_command(
             )
 
     if candidates:
-        scored = [
-            item for item in candidates
-            if isinstance(item, tuple)
-        ]
+        candidates.sort(
+            key=lambda item: item[0],
+            reverse=True,
+        )
 
-        if scored:
-            scored.sort(
-                key=lambda item: item[0],
-                reverse=True,
-            )
-            return scored[0][1]["name"], original_args
+        return finish(
+            candidates[0][1],
+            original_args,
+        )
 
-        return candidates[0]["name"], original_args
-
-    # Special fallback: known custom setpoint actions.
+    # Custom setpoint commands take no arguments.
     if capability == "custom.thermostatSetpointControl":
         if action_text in {
             "raise",
@@ -646,9 +808,11 @@ def _resolve_smartthings_command(
             "increase",
             "warmer",
             "temperatureup",
-        }:
-            if "raisesetpoint" in command_names:
-                return command_names["raisesetpoint"]["name"], []
+        } and "raisesetpoint" in command_names:
+            return finish(
+                command_names["raisesetpoint"],
+                [],
+            )
 
         if action_text in {
             "lower",
@@ -656,9 +820,11 @@ def _resolve_smartthings_command(
             "decrease",
             "cooler",
             "temperaturedown",
-        }:
-            if "lowersetpoint" in command_names:
-                return command_names["lowersetpoint"]["name"], []
+        } and "lowersetpoint" in command_names:
+            return finish(
+                command_names["lowersetpoint"],
+                [],
+            )
 
     raise ValueError(
         f"SmartThings capability '{capability}' does not expose "
