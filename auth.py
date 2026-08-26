@@ -15,9 +15,18 @@ from config import SABA_ACCESS_CODE, SABA_SESSION_SECRET
 
 SESSION_COOKIE = "saba_session"
 GATE_COOKIE = "saba_gate"
-SESSION_TTL = int(os.getenv("SABA_SESSION_TTL_SECONDS", str(60 * 60 * 24 * 30)))
-GATE_TTL = int(os.getenv("SABA_GATE_TTL_SECONDS", "900"))
-SECURE_COOKIES = os.getenv("SABA_SECURE_COOKIES", "").lower() in {
+
+SESSION_TTL = int(
+    os.getenv("SABA_SESSION_TTL_SECONDS", str(60 * 60 * 24 * 30))
+)
+
+GATE_TTL = int(
+    os.getenv("SABA_GATE_TTL_SECONDS", "900")
+)
+
+SECURE_COOKIES = os.getenv(
+    "SABA_SECURE_COOKIES", ""
+).lower() in {
     "1",
     "true",
     "yes",
@@ -35,18 +44,19 @@ class SessionIdentity:
     preferred_name: str | None = None
 
     @property
-def profile_label(self) -> str:
-    """Compatibility alias used by the router/tool layer."""
-    return self.label
+    def profile_label(self) -> str:
+        """Compatibility alias used by the router/tool layer."""
+        return self.label
 
-@property
-def is_creator(self) -> bool:
-    """True for the creator/owner account only."""
-    return self.role in {"creator", "owner"}
+    @property
+    def is_creator(self) -> bool:
+        """True for the creator/owner account only."""
+        return self.role in {"creator", "owner"}
 
-@property
-def is_owner(self) -> bool:
-    return self.role == "owner"
+    @property
+    def is_owner(self) -> bool:
+        return self.role == "owner"
+
 
 def _secret() -> bytes:
     if not SABA_SESSION_SECRET:
@@ -64,7 +74,9 @@ def _encode(payload: dict[str, Any], ttl: int) -> str:
         sort_keys=True,
     ).encode("utf-8")
 
-    encoded = base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+    encoded = base64.urlsafe_b64encode(
+        raw
+    ).decode("ascii").rstrip("=")
 
     sig = hmac.new(
         _secret(),
@@ -72,7 +84,9 @@ def _encode(payload: dict[str, Any], ttl: int) -> str:
         hashlib.sha256,
     ).digest()
 
-    signature = base64.urlsafe_b64encode(sig).decode("ascii").rstrip("=")
+    signature = base64.urlsafe_b64encode(
+        sig
+    ).decode("ascii").rstrip("=")
 
     return f"{encoded}.{signature}"
 
@@ -98,7 +112,9 @@ def _decode(token: str) -> dict[str, Any] | None:
             encoded + "=" * (-len(encoded) % 4)
         )
 
-        payload = json.loads(raw.decode("utf-8"))
+        payload = json.loads(
+            raw.decode("utf-8")
+        )
 
         if int(payload.get("exp", 0)) <= int(time.time()):
             return None
@@ -133,9 +149,16 @@ def set_gate(response: Response) -> None:
 
 
 def has_gate(request: Request) -> bool:
-    token = request.cookies.get(GATE_COOKIE, "")
+    token = request.cookies.get(
+        GATE_COOKIE,
+        "",
+    )
+
     payload = _decode(token)
-    return bool(payload and payload.get("gate") is True)
+
+    return bool(
+        payload and payload.get("gate") is True
+    )
 
 
 def issue_session(
@@ -160,7 +183,10 @@ def issue_session(
     )
 
 
-def set_session(response: Response, identity: SessionIdentity) -> None:
+def set_session(
+    response: Response,
+    identity: SessionIdentity,
+) -> None:
     response.set_cookie(
         SESSION_COOKIE,
         issue_session(
@@ -180,11 +206,20 @@ def set_session(response: Response, identity: SessionIdentity) -> None:
 
 
 def clear_auth(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE, path="/")
-    response.delete_cookie(GATE_COOKIE, path="/")
+    response.delete_cookie(
+        SESSION_COOKIE,
+        path="/",
+    )
+
+    response.delete_cookie(
+        GATE_COOKIE,
+        path="/",
+    )
 
 
-def identity_from_token(token: str | None) -> SessionIdentity | None:
+def identity_from_token(
+    token: str | None,
+) -> SessionIdentity | None:
     if not token:
         return None
 
@@ -193,7 +228,10 @@ def identity_from_token(token: str | None) -> SessionIdentity | None:
     if not payload:
         return None
 
-    if "user_id" not in payload or "owner_user_id" not in payload:
+    if (
+        "user_id" not in payload
+        or "owner_user_id" not in payload
+    ):
         return None
 
     try:
@@ -205,18 +243,31 @@ def identity_from_token(token: str | None) -> SessionIdentity | None:
             label=str(payload["label"]),
             preferred_name=payload.get("preferred_name"),
         )
-    except (KeyError, TypeError, ValueError):
+
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
         return None
 
 
-def identity_from_request(request: Request) -> SessionIdentity | None:
+def identity_from_request(
+    request: Request,
+) -> SessionIdentity | None:
     return identity_from_token(
-        request.cookies.get(SESSION_COOKIE)
+        request.cookies.get(
+            SESSION_COOKIE
+        )
     )
 
 
-def require_identity(request: Request) -> SessionIdentity:
-    identity = identity_from_request(request)
+def require_identity(
+    request: Request,
+) -> SessionIdentity:
+    identity = identity_from_request(
+        request
+    )
 
     if identity is None:
         raise HTTPException(
@@ -239,4 +290,4 @@ def identity_from_cookie_header(
         if name == SESSION_COOKIE:
             return identity_from_token(value)
 
-    return None
+    return None 
