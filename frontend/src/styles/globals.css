@@ -1554,3 +1554,114 @@ button {
     min-height: 42px;
   }
 }
+
+
+
+/* =========================================================
+   MOBILE / TABLET RESPONSIVENESS + PERFORMANCE
+   ========================================================= */
+
+@media (max-width: 720px) {
+
+  html,
+  body {
+    width: 100%;
+    min-height: 100%;
+    height: auto;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  /* Critical: allow the application itself to grow vertically */
+  .app-shell {
+    width: 100%;
+    min-height: 100dvh;
+    height: auto;
+    overflow: visible;
+  }
+
+  .app-layout {
+    width: 100%;
+    min-height: 100dvh;
+    height: auto;
+    overflow: visible;
+  }
+
+  .app-frame,
+  .app-content,
+  .command-center {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .command-center {
+    min-height: auto;
+  }
+
+  /* Don't let the decorative background consume mobile GPU */
+  .aurora,
+  .vignette {
+    display: none;
+  }
+
+  /* Reduce expensive glass effects on smaller devices */
+  .orb-state-plaque,
+  .glass-royal,
+  .cloud-gate-card {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  /* Keep the Orb, but substantially reduce continuous work */
+  .orb-organic-shell,
+  .mesh-drift,
+  .energy-ribbons path,
+  .orb-particle-field circle,
+  .orb-core-presence,
+  .orb-satellite-rings {
+    animation-play-state: paused;
+  }
+
+  /* Keep the Orb visually present without continuous animation */
+  .orb-organic-shell {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  .orb-core-presence {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .orb-satellite-rings {
+    transform: rotate(0deg);
+  }
+
+  .energy-ribbons path {
+    stroke-dashoffset: 0;
+  }
+
+  /* Smaller Orb = less rendering cost */
+  .orb-stage {
+    min-height: 420px;
+  }
+}
+
+/* Extra protection for very small phones */
+@media (max-width: 420px) {
+
+  .topbar {
+    min-height: 56px;
+    padding: 8px 10px;
+  }
+
+  .command-center {
+    padding: 14px 10px 24px;
+  }
+
+  .orb-stage {
+    min-height: 360px;
+    border-radius: 18px;
+  }
+}
