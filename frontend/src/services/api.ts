@@ -11,56 +11,77 @@ import {
  * Resolve the HTTP API base URL.
  *
  * Production:
- *   Uses the current browser origin, so Render/phone/iPad requests
- *   go back to the same SABA service instead of localhost.
+ *   Always uses the current browser origin.
+ *   This guarantees that Render, phone, iPad, and other devices
+ *   all talk to the same deployed SABA backend.
  *
  * Local development:
- *   Falls back to localhost:8000 when there is no browser window
- *   and no explicit VITE_API_URL.
+ *   Uses VITE_API_URL when provided.
+ *   Otherwise uses the current browser origin when available.
+ *   Falls back to localhost only for non-browser execution.
  */
 function runtimeHttpBase(): string {
   const configured = String(
     import.meta.env.VITE_API_URL || "",
   ).trim();
 
-  if (configured) {
-    return configured.replace(/\/$/, "");
-  }
-
   if (typeof window !== "undefined") {
+    // Production must always be same-origin.
+    if (import.meta.env.PROD) {
+      return window.location.origin.replace(/\/$/, "");
+    }
+
+    // Local development may explicitly use VITE_API_URL.
+    if (configured) {
+      return configured.replace(/\/$/, "");
+    }
+
     return window.location.origin.replace(/\/$/, "");
   }
 
-  return "http://localhost:8000";
+  return configured
+    ? configured.replace(/\/$/, "")
+    : "http://localhost:8000";
 }
 
 /**
  * Resolve the WebSocket base URL.
  *
- * Production/browser:
- *   https://... → wss://...
- *   http://...  → ws://...
+ * Production:
+ *   https://... -> wss://...
+ *   http://...  -> ws://...
  *
- * This is critical for phones/iPads/other computers because
- * "localhost" on those devices means the device itself.
+ * This guarantees that phones/iPads/other computers connect
+ * to the deployed SABA service rather than their own localhost.
  */
 function runtimeWsBase(path: string): string {
   const configured = String(
     import.meta.env.VITE_WS_URL || "",
   ).trim();
 
-  if (configured) {
-    return configured.replace(/\/$/, "");
-  }
-
   if (typeof window !== "undefined") {
+    // Production must always use the current browser host.
+    if (import.meta.env.PROD) {
+      const protocol =
+        window.location.protocol === "https:" ? "wss:" : "ws:";
+
+      return `${protocol}//${window.location.host}${path}`;
+    }
+
+    // Local development may explicitly use VITE_WS_URL.
+    if (configured) {
+      return configured.replace(/\/$/, "");
+    }
+
     const protocol =
       window.location.protocol === "https:" ? "wss:" : "ws:";
 
     return `${protocol}//${window.location.host}${path}`;
   }
 
-  return `ws://localhost:8000${path}`;
+  return configured
+    ? configured.replace(/\/$/, "")
+    : `ws://localhost:8000${path}`;
 }
 
 const BASE_URL = runtimeHttpBase();
